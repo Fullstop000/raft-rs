@@ -1931,6 +1931,11 @@ impl<T: Storage> Raft<T> {
             .maybe_append(m.index, m.log_term, m.commit, &m.entries)
         {
             to_send.set_index(last_idx);
+            if m.from_delegate != INVALID_ID {
+                let mut to_delegate = to_send.clone();
+                to_delegate.to = m.from_delegate;
+                self.send(to_delegate);
+            }
         } else {
             debug!(
                 self.logger,
@@ -1945,11 +1950,6 @@ impl<T: Storage> Raft<T> {
             to_send.index = m.index;
             to_send.reject = true;
             to_send.reject_hint = self.raft_log.last_index();
-        }
-        if m.from_delegate != INVALID_ID {
-            let mut to_delegate = to_send.clone();
-            to_delegate.to = m.from_delegate;
-            self.send(to_delegate);
         }
         self.send(to_send);
     }
@@ -1986,6 +1986,11 @@ impl<T: Storage> Raft<T> {
                 snapshot_term = sterm;
             );
             to_send.index = self.raft_log.last_index();
+            if m.from_delegate != INVALID_ID {
+                let mut to_delegate = to_send.clone();
+                to_delegate.to = m.from_delegate;
+                self.send(to_delegate);
+            }
         } else {
             info!(
                 self.logger,
@@ -1995,11 +2000,6 @@ impl<T: Storage> Raft<T> {
                 snapshot_term = sterm;
             );
             to_send.index = self.raft_log.committed;
-        }
-        if m.from_delegate != INVALID_ID {
-            let mut to_delegate = to_send.clone();
-            to_delegate.to = m.from_delegate;
-            self.send(to_delegate);
         }
         self.send(to_send);
     }
