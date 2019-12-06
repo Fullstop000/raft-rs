@@ -2338,7 +2338,7 @@ impl<T: Storage> Raft<T> {
     // Pick a delegate of the given group
     //
     // The delegate must satisfy conditions below:
-    // 1. The progress state should be `ProgressState::Replicate` and not paused;
+    // 1. The progress state should be `ProgressState::Replicate`;
     // 2. The progress has biggest `match`;
     fn pick_delegate(&mut self, to: u64, prs: &ProgressSet) -> u64 {
         if !self.is_leader() {

@@ -135,9 +135,7 @@ impl Progress {
 
     pub(crate) fn can_be_delegate(&self) -> bool {
         match self.state {
-            ProgressState::Replicate => {
-                !self.ins.full() && self.pending_request_snapshot == INVALID_INDEX
-            }
+            ProgressState::Replicate => self.pending_request_snapshot == INVALID_INDEX,
             _ => false,
         }
     }
