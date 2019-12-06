@@ -568,6 +568,17 @@ impl<T: Storage> Raft<T> {
         self.send(m);
     }
 
+    fn send_append_with_bcast_targets(&mut self, to: u64, pr: &mut Progress, targets: Vec<u64>) {
+        let old_msg_len = self.msgs.len();
+        self.send_append(to, pr);
+        let new_msg_len = self.msgs.len();
+        if new_msg_len > old_msg_len {
+            self.msgs[old_msg_len].set_bcast_targets(targets);
+        } else {
+            // TODO(qupeng): is it possible?
+        }
+    }
+
     // send_heartbeat sends an empty MsgAppend
     fn send_heartbeat(&mut self, to: u64, pr: &Progress, ctx: Option<Vec<u8>>) {
         // Attach the commit as min(to.matched, self.raft_log.committed).
@@ -1455,7 +1466,7 @@ impl<T: Storage> Raft<T> {
     /// Check message's progress to decide which action should be taken.
     fn check_message_with_progress(
         &mut self,
-        m: &mut Message,
+        m: &Message,
         send_append: &mut bool,
         old_paused: &mut bool,
         maybe_commit: &mut bool,
@@ -1653,10 +1664,14 @@ impl<T: Storage> Raft<T> {
             }
         }
 
-        if send_append && m.from_delegate == INVALID_ID {
-            let from = m.from;
+        // TODO(qupeng): make it correct when `from`'s leader is itself.
+        if send_append && self.groups.get_delegate_by_member(m.from).is_none() {
             let mut prs = self.take_prs();
-            self.send_append(from, prs.get_mut(from).unwrap());
+            self.send_append_with_bcast_targets(
+                m.from,
+                prs.get_mut(m.from).unwrap(),
+                m.take_bcast_targets(),
+            );
             self.set_prs(prs);
         }
         if !more_to_send.is_empty() {
@@ -1674,7 +1689,7 @@ impl<T: Storage> Raft<T> {
 
     // step_candidate is shared by state Candidate and PreCandidate; the difference is
     // whether they respond to MsgRequestVote or MsgRequestPreVote.
-    fn step_candidate(&mut self, mut m: Message) -> Result<()> {
+    fn step_candidate(&mut self, m: Message) -> Result<()> {
         match m.get_msg_type() {
             MessageType::MsgPropose => {
                 info!(
@@ -1687,15 +1702,7 @@ impl<T: Storage> Raft<T> {
             MessageType::MsgAppend => {
                 debug_assert_eq!(self.term, m.term);
                 self.become_follower(m.term, m.from);
-                self.handle_append_entries(&m);
-                let mut prs = self.take_prs();
-                for target in m.take_bcast_targets() {
-                    if let Some(pr) = prs.get_mut(target) {
-                        pr.reset_on_delegate(self.raft_log.last_index() + 1);
-                        self.send_append(target, pr);
-                    }
-                }
-                self.set_prs(prs);
+                self.handle_append_message(m);
             }
             MessageType::MsgHeartbeat => {
                 debug_assert_eq!(self.term, m.term);
@@ -1777,15 +1784,7 @@ impl<T: Storage> Raft<T> {
             MessageType::MsgAppend => {
                 self.election_elapsed = 0;
                 self.leader_id = m.from;
-                self.handle_append_entries(&m);
-                let mut prs = self.take_prs();
-                for target in m.take_bcast_targets() {
-                    if let Some(pr) = prs.get_mut(target) {
-                        pr.reset_on_delegate(self.raft_log.last_index() + 1);
-                        self.send_append(target, pr);
-                    }
-                }
-                self.set_prs(prs);
+                self.handle_append_message(m);
             }
             MessageType::MsgHeartbeat => {
                 self.election_elapsed = 0;
@@ -1908,14 +1907,16 @@ impl<T: Storage> Raft<T> {
     }
 
     /// For a given message, append the entries to the log.
-    fn handle_append_entries(&mut self, m: &Message) {
+    fn handle_append_message(&mut self, mut m: Message) {
         if self.pending_request_snapshot != INVALID_INDEX {
             self.send_request_snapshot();
             return;
         }
+
         let mut to_send = Message::default();
         to_send.set_msg_type(MessageType::MsgAppendResponse);
         to_send.to = m.from;
+
         if m.index < self.raft_log.committed {
             debug!(
                 self.logger,
@@ -1925,6 +1926,24 @@ impl<T: Storage> Raft<T> {
             self.send(to_send);
             return;
         }
+
+        if self.handle_append_entries(&m, &mut to_send) {
+            self.send(to_send);
+            let mut prs = self.take_prs();
+            for target in m.take_bcast_targets() {
+                if let Some(pr) = prs.get_mut(target) {
+                    pr.reset_on_delegate(self.raft_log.last_index() + 1);
+                    self.send_append(target, pr);
+                }
+            }
+            self.set_prs(prs);
+        } else {
+            to_send.set_bcast_targets(m.take_bcast_targets());
+            self.send(to_send);
+        }
+    }
+
+    fn handle_append_entries(&mut self, m: &Message, to_send: &mut Message) -> bool {
         debug_assert!(m.log_term != 0, "{:?} log term can't be 0", m);
         if let Some((_, last_idx)) = self
             .raft_log
@@ -1936,6 +1955,7 @@ impl<T: Storage> Raft<T> {
                 to_delegate.to = m.from_delegate;
                 self.send(to_delegate);
             }
+            true
         } else {
             debug!(
                 self.logger,
@@ -1950,8 +1970,8 @@ impl<T: Storage> Raft<T> {
             to_send.index = m.index;
             to_send.reject = true;
             to_send.reject_hint = self.raft_log.last_index();
+            false
         }
-        self.send(to_send);
     }
 
     // TODO: revoke pub when there is a better way to test.
