@@ -1899,7 +1899,7 @@ impl<T: Storage> Raft<T> {
 
     fn try_merge_response(&mut self, index: u64, reject: bool) -> bool {
         for msg in &mut self.msgs {
-            if msg.msg_type == MessageType::MsgAppendResponse
+            if msg.get_msg_type() == MessageType::MsgAppendResponse
                 && msg.reject == reject
                 && msg.from == self.id
                 && index > msg.index
