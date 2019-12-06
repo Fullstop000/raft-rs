@@ -1848,25 +1848,32 @@ impl<T: Storage> Raft<T> {
                 self.logger,
                 "got message with lower index than committed.";
             );
-            let mut to_send = Message::default();
-            to_send.set_msg_type(MessageType::MsgAppendResponse);
-            to_send.to = m.from;
-            to_send.index = self.raft_log.committed;
-            self.send(to_send);
+            if !self.try_merge_response(self.raft_log.committed, false) {
+                let mut to_send = Message::default();
+                to_send.set_msg_type(MessageType::MsgAppendResponse);
+                to_send.to = m.from;
+                to_send.index = self.raft_log.committed;
+                self.send(to_send);
+            }
             return;
         }
         debug_assert!(m.log_term != 0, "{:?} log term can't be 0", m);
 
-        let mut to_send = Message::default();
-        to_send.to = m.from;
-        to_send.set_msg_type(MessageType::MsgAppendResponse);
+        // let mut to_send = Message::default();
+        // to_send.to = m.from;
+        // to_send.set_msg_type(MessageType::MsgAppendResponse);
 
         if let Some((_, last_idx)) = self
             .raft_log
             .maybe_append(m.index, m.log_term, m.commit, &m.entries)
         {
-            to_send.set_index(last_idx);
-            self.send(to_send);
+            if !self.try_merge_response(last_idx, false) {
+                let mut to_send = Message::default();
+                to_send.to = m.from;
+                to_send.set_msg_type(MessageType::MsgAppendResponse);
+                to_send.set_index(last_idx);
+                self.send(to_send);
+            }
         } else {
             debug!(
                 self.logger,
@@ -1878,11 +1885,33 @@ impl<T: Storage> Raft<T> {
                 "index" => m.index,
                 "logterm" => ?self.raft_log.term(m.index),
             );
-            to_send.index = m.index;
-            to_send.reject = true;
-            to_send.reject_hint = self.raft_log.last_index();
-            self.send(to_send);
+            if !self.try_merge_response(m.index, true) {
+                let mut to_send = Message::default();
+                to_send.to = m.from;
+                to_send.set_msg_type(MessageType::MsgAppendResponse);
+                to_send.index = m.index;
+                to_send.reject = true;
+                to_send.reject_hint = self.raft_log.last_index();
+                self.send(to_send);
+            }
         }
+    }
+
+    fn try_merge_response(&mut self, index: u64, reject: bool) -> bool {
+        for msg in &mut self.msgs {
+            if msg.msg_type == MessageType::MsgAppendResponse
+                && msg.reject == reject
+                && msg.from == self.id
+                && index > msg.index
+            {
+                msg.index = index;
+                if reject {
+                    msg.reject_hint = self.raft_log.last_index();
+                }
+                return true;
+            }
+        }
+        false
     }
 
     // TODO: revoke pub when there is a better way to test.
@@ -1913,11 +1942,13 @@ impl<T: Storage> Raft<T> {
                 snapshot_index = sindex,
                 snapshot_term = sterm;
             );
-            let mut to_send = Message::default();
-            to_send.set_msg_type(MessageType::MsgAppendResponse);
-            to_send.to = m.from;
-            to_send.index = self.raft_log.last_index();
-            self.send(to_send);
+            if !self.try_merge_response(self.raft_log.last_index(), false) {
+                let mut to_send = Message::default();
+                to_send.set_msg_type(MessageType::MsgAppendResponse);
+                to_send.to = m.from;
+                to_send.index = self.raft_log.last_index();
+                self.send(to_send);
+            }
         } else {
             info!(
                 self.logger,
@@ -1926,11 +1957,13 @@ impl<T: Storage> Raft<T> {
                 snapshot_index = sindex,
                 snapshot_term = sterm;
             );
-            let mut to_send = Message::default();
-            to_send.set_msg_type(MessageType::MsgAppendResponse);
-            to_send.to = m.from;
-            to_send.index = self.raft_log.committed;
-            self.send(to_send);
+            if !self.try_merge_response(self.raft_log.committed, false) {
+                let mut to_send = Message::default();
+                to_send.set_msg_type(MessageType::MsgAppendResponse);
+                to_send.to = m.from;
+                to_send.index = self.raft_log.committed;
+                self.send(to_send);
+            }
         }
     }
 

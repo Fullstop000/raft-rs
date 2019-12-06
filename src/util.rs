@@ -120,6 +120,7 @@ const TAB64: [usize; 64] = [
     45, 25, 31, 35, 16, 9, 12, 44, 24, 15, 8, 23, 7, 6, 5,
 ];
 
+#[allow(dead_code)]
 fn log2_32(mut n: usize) -> usize {
     n |= n >> 1;
     n |= n >> 2;
