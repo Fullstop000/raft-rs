@@ -121,7 +121,7 @@ impl Inflights {
                 mid = (start + end) / 2;
             }
             self.count -= mid + 1 - self.start;
-            self.start = self.rotate(mid) + 1;
+            self.start = self.rotate(mid + 1);
         }
         self.update_pivot();
     }
