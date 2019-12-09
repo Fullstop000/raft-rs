@@ -575,7 +575,8 @@ impl<T: Storage> Raft<T> {
         if new_msg_len > old_msg_len {
             self.msgs[old_msg_len].set_bcast_targets(targets);
         } else {
-            // TODO(qupeng): is it possible?
+            // TODO(qupeng): is it possible? Remove it later.
+            panic!("should be impossible in send_append_with_bcast_targets");
         }
     }
 
@@ -1664,8 +1665,7 @@ impl<T: Storage> Raft<T> {
             }
         }
 
-        // TODO(qupeng): make it correct when `from`'s leader is itself.
-        if send_append && self.groups.get_delegate_by_member(m.from).is_none() {
+        if send_append && m.from_delegate == 0 {
             let mut prs = self.take_prs();
             self.send_append_with_bcast_targets(
                 m.from,
@@ -1674,6 +1674,7 @@ impl<T: Storage> Raft<T> {
             );
             self.set_prs(prs);
         }
+
         if !more_to_send.is_empty() {
             for to_send in more_to_send.drain(..) {
                 self.send(to_send);
@@ -1951,6 +1952,9 @@ impl<T: Storage> Raft<T> {
         {
             to_send.set_index(last_idx);
             if m.from_delegate != INVALID_ID {
+                // TODO(qupeng): in responses `from_delegate` indicates the entries come from delegates.
+                // Maybe we need to rename the field.
+                to_send.from_delegate = m.from_delegate;
                 let mut to_delegate = to_send.clone();
                 to_delegate.to = m.from_delegate;
                 self.send(to_delegate);
