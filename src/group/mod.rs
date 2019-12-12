@@ -107,6 +107,7 @@ impl<'a> Groups {
             }
         }
 
+        // If there is only one member in the group, it remains unresolved.
         if chosen != INVALID_ID && !bcast_targets.is_empty() {
             let (_, d) = self.indexes.get_mut(&chosen).unwrap();
             *d = chosen;
@@ -190,12 +191,13 @@ impl<'a> Groups {
             .map_or((false, INVALID_ID), |(_, (_, d))| (true, *d));
 
         let _x = self.indexes.insert(peer, (group_id, delegate));
-        debug_assert!(_x.is_none());
+        debug_assert!(_x.is_none(), "peer can't exist before mark");
 
         if delegate != INVALID_ID {
             self.bcast_targets.get_mut(&delegate).unwrap().push(peer);
         } else if found {
-            // There are other peers in the same group, and all of them don't have a delegate.
+            // We have found a peer in the same group but haven't been delegated, add it to
+            // `unresolved`.
             self.unresolved.push(peer);
         }
     }
@@ -244,7 +246,7 @@ mod tests {
             prs.insert_voter(id, pr).unwrap();
         }
 
-        // After resolve, there will be 1 active group.
+        // After the resolving, only group 2 should be delegated.
         group.resolve_delegates(&prs);
         assert_eq!(group.bcast_targets.len(), 1);
         let (delegate, mut targets) = next_delegate_and_bcast_targets(&group);
