@@ -124,7 +124,6 @@ impl Sandbox {
                 Some(node)
             })
             .collect::<Vec<Option<Interface>>>();
-        leader_node.groups.resolve_delegates(&prs);
         leader_node.set_prs(prs);
         interfaces.insert(0, Some(leader_node));
         let network = Network::new(interfaces, l);
@@ -462,13 +461,101 @@ fn test_follower_only_send_reject_to_delegate() {
 }
 
 #[test]
-fn test_send_empty_msg_when_paused() {
-    // TODO
+fn test_paused_delegate() {
+    let l = default_logger();
+    let group_config = vec![(2, vec![1]), (1, vec![2, 3, 4])];
+    let followers = vec![
+        (2, FollowerScenario::NeedEntries(10)),
+        (3, FollowerScenario::NeedEntries(7)),
+        (4, FollowerScenario::Snapshot),
+    ];
+    let mut sandbox = Sandbox::new(&l, 1, followers, group_config, 5, 20);
+    for id in 1..=4 {
+        // Reset inflights capacity to 1.
+        let r = sandbox.network.peers.get_mut(&id).unwrap();
+        r.max_inflight = 1;
+        for (_, pr) in r.mut_prs().iter_mut() {
+            pr.ins = Inflights::new(1);
+        }
+    }
+
+    // Leader will send append only to peer 2.
+    sandbox
+        .network
+        .dispatch(vec![new_message(1, 1, MessageType::MsgPropose, 1)])
+        .expect("");
+    let msgs = sandbox.get_mut(1).read_messages();
+    assert_eq!(msgs.len(), 1);
+    sandbox.network.dispatch(msgs).unwrap();
+
+    // More proposals wont' cause more messages sent out.
+    sandbox
+        .network
+        .dispatch(vec![new_message(1, 1, MessageType::MsgPropose, 1)])
+        .expect("");
+    let msgs = sandbox.get_mut(1).read_messages();
+    assert_eq!(msgs.len(), 0);
+
+    // Step the append response from peer 2, then the leader can send more.
+    // And all append messages should contain `bcast_targets`.
+    let append_resp = sandbox.get_mut(2).read_messages()[0].clone();
+    sandbox.network.dispatch(vec![append_resp]).unwrap();
+    let msgs = sandbox.get_mut(1).read_messages();
+    assert!(!msgs[0].get_bcast_targets().is_empty());
 }
 
 #[test]
 fn test_dismiss_delegate_when_not_active() {
-    // TODO
+    let l = default_logger();
+    let group_config = vec![(2, vec![1]), (1, vec![2, 3, 4])];
+    let followers = vec![
+        (2, FollowerScenario::NeedEntries(10)),
+        (3, FollowerScenario::NeedEntries(7)),
+        (4, FollowerScenario::Snapshot),
+    ];
+    let mut sandbox = Sandbox::new(&l, 1, followers, group_config, 5, 20);
+
+    for id in 1..=4 {
+        // Reset check_quorum to true.
+        let r = sandbox.network.peers.get_mut(&id).unwrap();
+        r.check_quorum = true;
+    }
+
+    // Leader will send append only to peer 2.
+    sandbox
+        .network
+        .dispatch(vec![new_message(1, 1, MessageType::MsgPropose, 1)])
+        .expect("");
+    let msgs = sandbox.get_mut(1).read_messages();
+    assert_eq!(msgs.len(), 1);
+    sandbox.network.dispatch(msgs).unwrap();
+
+    // Let the leader check quorum twice. Then delegates should be dismissed.
+    for _ in 0..2 {
+        {
+            let r = sandbox.network.peers.get_mut(&1).unwrap();
+            for (id, pr) in r.mut_prs().iter_mut() {
+                if *id == 3 || *id == 4 {
+                    pr.recent_active = true;
+                }
+            }
+        }
+        let s = sandbox.network.peers[&1].election_elapsed;
+        let e = sandbox.network.peers[&1].election_timeout();
+        for _ in s..=e {
+            let r = sandbox.network.peers.get_mut(&1).unwrap();
+            r.tick();
+        }
+    }
+
+    // After the delegate is dismissed, leader will send append to it and an another new delegate.
+    sandbox
+        .network
+        .dispatch(vec![new_message(1, 1, MessageType::MsgPropose, 1)])
+        .expect("");
+    let mut msgs = sandbox.get_mut(1).read_messages();
+    msgs = msgs.into_iter().filter(|m| m.get_msg_type() == MessageType::MsgAppend).collect();
+    assert_eq!(msgs.len(), 2);
 }
 
 #[test]
