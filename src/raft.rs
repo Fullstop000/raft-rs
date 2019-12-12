@@ -600,7 +600,6 @@ impl<T: Storage> Raft<T> {
         self.groups.resolve_delegates(&prs);
         for (id, pr) in prs.iter_mut().filter(|(id, _)| **id != self_id) {
             let delegate = self.groups.get_delegate(*id);
-            println!("send to {}, delegate: {}", *id, delegate);
             if delegate == INVALID_ID || delegate == *id {
                 self.send_append(*id, pr);
             }
