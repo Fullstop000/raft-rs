@@ -155,8 +155,8 @@ impl<'a> Groups {
         self.bcast_targets.get(&delegate)
     }
 
-    /// Update given `peer`'s group ID
-    pub(crate) fn update_group_id(&mut self, peer: u64, group_id: u64) {
+    /// Update given `peer`'s group ID. Return `true` if any peers are unresolved.
+    pub(crate) fn update_group_id(&mut self, peer: u64, group_id: u64) -> bool {
         let mut remove_delegate = false;
         match self.indexes.entry(peer) {
             MapEntry::Occupied(e) => {
@@ -181,6 +181,7 @@ impl<'a> Groups {
         if remove_delegate {
             self.remove_delegate(peer);
         }
+        !self.unresolved.is_empty()
     }
 
     // Pick delegates for all peers if need.

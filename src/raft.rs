@@ -406,6 +406,7 @@ impl<T: Storage> Raft<T> {
         if m.from == INVALID_ID {
             m.from = self.id;
         }
+        m.group_id = self.group_id;
         if m.get_msg_type() == MessageType::MsgRequestVote
             || m.get_msg_type() == MessageType::MsgRequestPreVote
             || m.get_msg_type() == MessageType::MsgRequestVoteResponse
@@ -937,7 +938,11 @@ impl<T: Storage> Raft<T> {
     /// message from a peer.
     pub fn step(&mut self, m: Message) -> Result<()> {
         if m.term != 0 && m.get_group_id() != INVALID_ID {
-            self.groups.update_group_id(m.from, m.get_group_id());
+            if self.groups.update_group_id(m.from, m.get_group_id()) {
+                let prs = self.take_prs();
+                self.groups.resolve_delegates(&prs);
+                self.set_prs(prs);
+            }
         }
         // Handle the message term, which may result in our stepping down to a follower.
         if m.term == 0 {
