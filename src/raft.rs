@@ -529,10 +529,8 @@ impl<T: Storage> Raft<T> {
         if self.leader_id != self.id {
             m.from = self.leader_id;
             m.delegate = self.id;
-        } else {
-            if let Some(ids) = self.groups.get_bcast_targets(m.to) {
-                m.set_bcast_targets(ids.clone());
-            }
+        } else if let Some(ids) = self.groups.get_bcast_targets(m.to) {
+            m.set_bcast_targets(ids.clone());
         }
     }
 
@@ -935,6 +933,7 @@ impl<T: Storage> Raft<T> {
 
     /// Steps the raft along via a message. This should be called everytime your raft receives a
     /// message from a peer.
+    #[allow(clippy::collapsible_if)]
     pub fn step(&mut self, m: Message) -> Result<()> {
         if m.term != 0 && m.get_group_id() != INVALID_ID {
             if self.groups.update_group_id(m.from, m.get_group_id()) {
@@ -943,6 +942,7 @@ impl<T: Storage> Raft<T> {
                 self.set_prs(prs);
             }
         }
+
         // Handle the message term, which may result in our stepping down to a follower.
         if m.term == 0 {
             // local message
