@@ -1277,6 +1277,18 @@ impl<T: Storage> Raft<T> {
         *maybe_commit = true;
     }
 
+    fn handle_append_response_on_delegate(&mut self, m: &Message) {
+        let mut prs = self.take_prs();
+        let mut send_append = false;
+        let (mut _h1, mut _h2) = (false, false);
+        self.handle_append_response(&m, &mut prs, &mut _h1, &mut send_append, &mut _h2);
+        if send_append {
+            let from = m.from;
+            self.send_append(from, prs.get_mut(from).unwrap());
+        }
+        self.set_prs(prs);
+    }
+
     fn process_leader_transfer(&mut self, from: u64, match_idx: u64) {
         if let Some(lead_transferee) = self.lead_transferee {
             let last_index = self.raft_log.last_index();
@@ -1819,17 +1831,7 @@ impl<T: Storage> Raft<T> {
                 self.read_states.push(rs);
             }
             MessageType::MsgAppendResponse => {
-                let mut prs = self.take_prs();
-                let mut send_append = false;
-                let (mut _h1, mut _h2) = (false, false);
-                self.handle_append_response(&m, &mut prs, &mut _h1, &mut send_append, &mut _h2);
-                self.set_prs(prs);
-                if send_append {
-                    let from = m.from;
-                    let mut prs = self.take_prs();
-                    self.send_append(from, prs.get_mut(from).unwrap());
-                    self.set_prs(prs);
-                }
+                self.handle_append_response_on_delegate(&m);
             }
             _ => {}
         }

@@ -219,6 +219,20 @@ impl<'a> Groups {
             self.remove_delegate(id);
         }
     }
+
+    pub fn dump(&self) -> Vec<(u64, Vec<u64>)> {
+        let mut m: HashMap<u64, Vec<u64>> = HashMap::new();
+        for (peer, (group, _)) in &self.indexes {
+            let v = m.entry(*group).or_default();
+            v.push(*peer);
+        }
+        for v in m.values_mut() {
+            v.sort();
+        }
+        let mut v: Vec<_> = m.into_iter().collect();
+        v.sort_by(|a1, a2| a1.0.cmp(&a2.0));
+        v
+    }
 }
 
 #[cfg(test)]
