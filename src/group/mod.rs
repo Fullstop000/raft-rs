@@ -131,6 +131,8 @@ impl<'a> Groups {
     /// Unset the delegate by delegate id. If the peer is not delegate, do nothing.
     pub(crate) fn remove_delegate(&mut self, delegate: u64) {
         if self.bcast_targets.remove(&delegate).is_some() {
+            // Remove the delegate from the group system since it's temorary unreachable.
+            // And the peer will be re-added after the leader receives a message from it.
             self.indexes.remove(&delegate);
             for (peer, (_, d)) in self.indexes.iter_mut() {
                 if *d == delegate {
@@ -272,7 +274,7 @@ mod tests {
 
         // Remove a delegate.
         group.remove_delegate(delegate);
-        assert!(!group.unresolved.is_empty());
+        assert_eq!(group.unresolved.len(), 2);
         group.resolve_delegates(&prs);
         let (_, targets) = next_delegate_and_bcast_targets(&group);
         assert_eq!(targets.len(), 1);
@@ -287,9 +289,11 @@ mod tests {
         let (_, targets) = next_delegate_and_bcast_targets(&group);
         assert_eq!(targets.len(), 2);
 
-        // The peer reports to the group again, without group id.
+        // Get the new delegate.
         let (delegate, _) = next_delegate_and_bcast_targets(&group);
         assert_ne!(peer, delegate);
+
+        // The peer reports to the group again, without group id.
         group.update_group_id(peer, INVALID_ID);
         let (_, targets) = next_delegate_and_bcast_targets(&group);
         assert_eq!(targets.len(), 1);

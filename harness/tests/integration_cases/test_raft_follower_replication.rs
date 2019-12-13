@@ -511,7 +511,7 @@ fn test_dismiss_delegate_when_not_active() {
     let followers = vec![
         (2, FollowerScenario::NeedEntries(10)),
         (3, FollowerScenario::NeedEntries(7)),
-        (4, FollowerScenario::Snapshot),
+        (4, FollowerScenario::NeedEntries(6)),
     ];
     let mut sandbox = Sandbox::new(&l, 1, followers, group_config, 5, 20);
 
@@ -543,8 +543,7 @@ fn test_dismiss_delegate_when_not_active() {
         let s = sandbox.network.peers[&1].election_elapsed;
         let e = sandbox.network.peers[&1].election_timeout();
         for _ in s..=e {
-            let r = sandbox.network.peers.get_mut(&1).unwrap();
-            r.tick();
+            sandbox.leader_mut().tick();
         }
     }
 
@@ -553,9 +552,16 @@ fn test_dismiss_delegate_when_not_active() {
         .network
         .dispatch(vec![new_message(1, 1, MessageType::MsgPropose, 1)])
         .expect("");
+    sandbox.last_index += 1; // for the second MsgPropose.
+
     let mut msgs = sandbox.get_mut(1).read_messages();
-    msgs = msgs.into_iter().filter(|m| m.get_msg_type() == MessageType::MsgAppend).collect();
+    msgs = msgs
+        .into_iter()
+        .filter(|m| m.get_msg_type() == MessageType::MsgAppend)
+        .collect();
     assert_eq!(msgs.len(), 2);
+    sandbox.network.send(msgs);
+    sandbox.assert_final_state();
 }
 
 #[test]
